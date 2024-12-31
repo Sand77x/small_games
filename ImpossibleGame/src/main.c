@@ -89,7 +89,19 @@ int main(int argv, char** args) {
     };
     g_boxes[5] = (SDL_FRect){
         .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*4,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*2,
+        .w = PLAYER_SIZE,
+        .h = PLAYER_SIZE 
+    };
+    g_boxes[6] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*4,
         .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*3,
+        .w = PLAYER_SIZE,
+        .h = PLAYER_SIZE 
+    };
+    g_boxes[7] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*4,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*4,
         .w = PLAYER_SIZE,
         .h = PLAYER_SIZE 
     };
@@ -172,26 +184,33 @@ void simulate_gravity(SDL_FRect* box, int* inside, double dt) {
 }
 
 SDL_FRect* box_collided(int* inside) {
+    SDL_FRect* final_box = NULL;
     for (size_t i=0; i<g_box_count; i++) {
         if (((g_player.x+PLAYER_SIZE) >= g_boxes[i].x && g_player.x <= g_boxes[i].x) || 
              (g_player.x >= g_boxes[i].x && g_player.x <= g_boxes[i].x+PLAYER_SIZE)) {
-            if (player_in_box(&g_boxes[i])) {
+            if (g_player.y == g_boxes[i].y) {
                 *inside = 1;
                 return &g_boxes[i];
             }
+
+            if (player_in_box(&g_boxes[i])) {
+                *inside = 1;
+                final_box = &g_boxes[i];
+            }
             if (player_on_box(&g_boxes[i])) {
                 *inside = 0;
-                return &g_boxes[i];
+                final_box = &g_boxes[i];
             }
         }
     }
 
-    *inside = 0;
-    return NULL;
+    if (final_box == NULL) 
+        *inside = 0;
+    return final_box;
 }
 
 void player_jump(SDL_FRect* box, int pressed, double dt) {
-    const int jump_frames = 40;
+    const int jump_frames = 30;
     static int jump_len = 0;
 
     if (jump_len > 0) {
@@ -219,14 +238,13 @@ static inline int player_on_box(SDL_FRect* box) {
 
 static inline int player_in_box(SDL_FRect* box) {
     return ((g_player.y+PLAYER_SIZE) > box->y && g_player.y < box->y) ||
-            (g_player.y > box->y && g_player.y < (box->y+PLAYER_SIZE)) ||
-             (g_player.y == box->y);
+            (g_player.y > box->y && g_player.y < (box->y+PLAYER_SIZE));
 }
 
 void render_boxes() {
     for (size_t i=0; i<g_box_count; i++) {
         if (g_boxes[i].x > SCREEN_WIDTH || g_boxes[i].w <= 0) continue;
-        SDL_RenderDrawRectF(g_renderer, &g_boxes[i]) ;
+        SDL_RenderFillRectF(g_renderer, &g_boxes[i]);
     }
 }
 
