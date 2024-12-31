@@ -21,3 +21,8 @@ $(OUT): $(OBJ)
 
 build/%.o: src/%.c
 	$(CC) -c $< $(CFLAGS) $(INCLUDES) $(LIBS) $(LDFLAGS) -o $@
+
+test:
+	make clean
+	make
+	./program

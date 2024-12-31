@@ -1,3 +1,5 @@
+#include "SDL2/SDL_events.h"
+#include "SDL2/SDL_rect.h"
 #include "constants.h"
 
 #include <stdio.h>
@@ -7,18 +9,20 @@
 
 SDL_Window* g_window;
 SDL_Renderer* g_renderer;
-SDL_Rect g_player;
+SDL_FRect g_player;
 
-SDL_Rect* g_boxes;
+SDL_FRect* g_boxes;
 size_t g_box_count;
 
-void simulate_gravity(SDL_Rect* const, double);
-void player_jump(SDL_Rect* const, int, double);
-static inline int player_on_ground();
-static inline int player_on_box(SDL_Rect*);
+void simulate_gravity(SDL_FRect* const, int*, double);
+void player_jump(SDL_FRect* const, int, double);
 void move_boxes_left(double);
-SDL_Rect* box_collided();
-static inline int are_rects_colliding(SDL_Rect* const, SDL_Rect* const); 
+SDL_FRect* box_collided(int*);
+
+static inline int are_rects_colliding(SDL_FRect* const, SDL_FRect* const); 
+static inline int player_on_ground();
+static inline int player_on_box(SDL_FRect*);
+static inline int player_in_box(SDL_FRect*);
 
 void render_boxes();
 
@@ -39,35 +43,53 @@ int main(int argv, char** args) {
         exit(1);
     }
     
-    g_player = (SDL_Rect){
+    g_player = (SDL_FRect){
         .x = PLAYER_OFFSET_LEFT,
         .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
         .w = PLAYER_SIZE,
         .h = PLAYER_SIZE 
     };
 
-    g_box_count = 4;
-    g_boxes = malloc(sizeof(SDL_Rect)*g_box_count);
+    g_box_count = 10;
+    g_boxes = malloc(sizeof(SDL_FRect)*g_box_count);
     if (g_boxes == NULL) {
         SDL_LogError(1, "Failed to create obstacles");
         exit(1);
     }
 
-    g_boxes[0] = (SDL_Rect){
-        .x = MIN_BOX_OFFSET_LEFT+50*0,
+    g_boxes[0] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*0,
         .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
         .w = PLAYER_SIZE,
         .h = PLAYER_SIZE 
     };
-    g_boxes[1] = (SDL_Rect){
-        .x = MIN_BOX_OFFSET_LEFT+50*3,
-        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*3,
+    g_boxes[1] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*1,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
         .w = PLAYER_SIZE,
         .h = PLAYER_SIZE 
     };
-    g_boxes[2] = (SDL_Rect){
-        .x = MIN_BOX_OFFSET_LEFT+50*6,
-        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*5,
+    g_boxes[2] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*2,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
+        .w = PLAYER_SIZE,
+        .h = PLAYER_SIZE 
+    };
+    g_boxes[3] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*3,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
+        .w = PLAYER_SIZE,
+        .h = PLAYER_SIZE 
+    };
+    g_boxes[4] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*4,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE,
+        .w = PLAYER_SIZE,
+        .h = PLAYER_SIZE 
+    };
+    g_boxes[5] = (SDL_FRect){
+        .x = MIN_BOX_OFFSET_LEFT+PLAYER_SIZE*4,
+        .y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE*3,
         .w = PLAYER_SIZE,
         .h = PLAYER_SIZE 
     };
@@ -106,24 +128,22 @@ int main(int argv, char** args) {
         SDL_SetRenderDrawColor(g_renderer, 0x00, 0x00, 0x00, 1);
         SDL_RenderClear(g_renderer);
 
-        SDL_Rect* box = box_collided();
+        int inside;
+        SDL_FRect* box = box_collided(&inside);
 
-        if (box) {
-            printf("%d %d | %d %d\n", g_player.x, g_player.y, box->x, box->y);
-            if (g_player.y >= box->y && g_player.y <= box->y+PLAYER_SIZE) {
-                printf("You died!\n");
-                exit = 1;
-            }
-        }
-
-        simulate_gravity(box, delta_time);
         player_jump(box, pressed_down, delta_time);
+        simulate_gravity(box, &inside, delta_time);
         move_boxes_left(delta_time);
+
+        if (inside) {
+            printf("Player died!\n");
+            exit = 1;
+        }
 
         // Rendering
         SDL_SetRenderDrawColor(g_renderer, 0xFF, 0xFF, 0xFF, 1);
         SDL_RenderDrawLine(g_renderer, 0, SCREEN_HEIGHT-GROUND_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT-GROUND_HEIGHT);
-        SDL_RenderFillRect(g_renderer, &g_player);
+        SDL_RenderFillRectF(g_renderer, &g_player);
         SDL_SetRenderDrawColor(g_renderer, 0x00, 0xFF, 0x00, 1);
         render_boxes();
         // ...
@@ -132,40 +152,45 @@ int main(int argv, char** args) {
     }
     
 
+    free(g_boxes);
     return 0;
 }
 
-void simulate_gravity(SDL_Rect* box, double dt) {
-    g_player.y += GRAVITY * dt;
-    if (g_player.y+PLAYER_SIZE > SCREEN_HEIGHT-GROUND_HEIGHT) {
-        g_player.y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE;
-    }
+void simulate_gravity(SDL_FRect* box, int* inside, double dt) {
 
-    if (box && (g_player.y+PLAYER_SIZE > box->y)) {
-        g_player.y = box->y-PLAYER_SIZE;
+    if (box) { 
+        if ((g_player.y+PLAYER_SIZE > box->y) && (g_player.y+PLAYER_SIZE-box->y <= CLIP_THRESHHOLD)) {
+            g_player.y = box->y-PLAYER_SIZE;
+            *inside = 0;
+        }
+    } else {
+        g_player.y += GRAVITY * dt;
+        if (g_player.y+PLAYER_SIZE > SCREEN_HEIGHT-GROUND_HEIGHT) {
+            g_player.y = SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SIZE;
+        }
     }
 }
 
-static inline int are_rects_colliding(SDL_Rect* const r1, SDL_Rect* const r2) {
-    return ((r1->x >  r2->x && r1->x <  r2->x+PLAYER_SIZE)  ||
-            (r2->x >  r1->x && r2->x <  r1->x+PLAYER_SIZE)) &&
-           ((r1->y >= r2->y && r1->y <= r2->y+PLAYER_SIZE)  ||
-            (r2->y >= r1->y && r2->y <= r1->y+PLAYER_SIZE)); 
-}
-
-SDL_Rect* box_collided() {
-    SDL_Rect* box = NULL;
+SDL_FRect* box_collided(int* inside) {
     for (size_t i=0; i<g_box_count; i++) {
-        if (are_rects_colliding(&g_player, &g_boxes[i])) {
-            if (box == NULL || box->y > g_boxes[i].y)
-                box = &g_boxes[i];
+        if (((g_player.x+PLAYER_SIZE) >= g_boxes[i].x && g_player.x <= g_boxes[i].x) || 
+             (g_player.x >= g_boxes[i].x && g_player.x <= g_boxes[i].x+PLAYER_SIZE)) {
+            if (player_in_box(&g_boxes[i])) {
+                *inside = 1;
+                return &g_boxes[i];
+            }
+            if (player_on_box(&g_boxes[i])) {
+                *inside = 0;
+                return &g_boxes[i];
+            }
         }
     }
 
-    return box;
+    *inside = 0;
+    return NULL;
 }
 
-void player_jump(SDL_Rect* box, int pressed, double dt) {
+void player_jump(SDL_FRect* box, int pressed, double dt) {
     const int jump_frames = 40;
     static int jump_len = 0;
 
@@ -188,14 +213,20 @@ static inline int player_on_ground() {
     return (g_player.y+PLAYER_SIZE) == (SCREEN_HEIGHT-GROUND_HEIGHT);
 }
 
-static inline int player_on_box(SDL_Rect* box) {
+static inline int player_on_box(SDL_FRect* box) {
     return (g_player.y+PLAYER_SIZE) == box->y;
+}
+
+static inline int player_in_box(SDL_FRect* box) {
+    return ((g_player.y+PLAYER_SIZE) > box->y && g_player.y < box->y) ||
+            (g_player.y > box->y && g_player.y < (box->y+PLAYER_SIZE)) ||
+             (g_player.y == box->y);
 }
 
 void render_boxes() {
     for (size_t i=0; i<g_box_count; i++) {
         if (g_boxes[i].x > SCREEN_WIDTH || g_boxes[i].w <= 0) continue;
-        SDL_RenderDrawRect(g_renderer, &g_boxes[i]) ;
+        SDL_RenderDrawRectF(g_renderer, &g_boxes[i]) ;
     }
 }
 
